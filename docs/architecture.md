@@ -121,7 +121,6 @@ All workflows authenticate to AWS via **OIDC** — no static access keys stored.
 | `WEB_ASG_NAME`           | Web-tier ASG name (from `terraform output web_asg_name`) |
 | `ADMIN_IP_CIDR`          | Your IP in x.x.x.x/32 form                          |
 | `TF_VAR_DB_PASSWORD`     | RDS master password                                  |
-| `GITHUB_OWNER`           | GitHub username/org                                  |
 
 ## Cost Notes (development environment)
 

@@ -152,7 +152,6 @@ In the AWS Console:
 | `WEB_ASG_NAME`            | `terraform output web_asg_name` (after apply)           |
 | `ADMIN_IP_CIDR`           | Your public IP in `x.x.x.x/32` form                    |
 | `TF_VAR_DB_PASSWORD`      | Strong RDS master password                              |
-| `GITHUB_OWNER`            | Your GitHub username or organisation                    |
 
 ### 5. First infrastructure deploy
 
