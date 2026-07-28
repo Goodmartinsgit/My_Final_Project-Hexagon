@@ -38,5 +38,5 @@ db_multi_az          = false
 
 # ── GitHub / OIDC ─────────────────────────────────────────────────────────────
 # Must match the GitHub repository that runs the CI/CD workflows.
-github_org  = "your-github-username-or-org"
-github_repo = "Hexagon_Final_Project"
+github_org  = "Goodmartinsgit"
+github_repo = "My_Final_Project-Hexagon"
