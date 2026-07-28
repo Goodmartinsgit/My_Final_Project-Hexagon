@@ -1,0 +1,64 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+jobs:
+  lint-and-test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install production and development dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: Lint with flake8
+        run: |
+          flake8 backend/ \
+            --max-line-length=120 \
+            --exclude=backend/__pycache__,backend/venv,backend/tests/__pycache__
+
+      - name: Format check with black
+        run: |
+          black --check backend/ --line-length=120
+
+      - name: Run tests with coverage
+        working-directory: backend
+        run: |
+          pytest tests/ -v \
+            --cov=. \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Security scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "backend/"
+          ignore-unfixed: true
+          format: "sarif"
+          output: "trivy-backend.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif

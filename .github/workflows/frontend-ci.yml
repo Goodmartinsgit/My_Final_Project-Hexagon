@@ -1,0 +1,63 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-ci.yml"
+
+jobs:
+  validate:
+    name: Validate Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check HTML file structure
+        run: |
+          EXIT_CODE=0
+          for file in frontend/*.html; do
+            if [ -f "$file" ]; then
+              echo "Checking: $file"
+              if ! grep -q "<!DOCTYPE html>" "$file"; then
+                echo "  Missing DOCTYPE declaration in $file"
+                EXIT_CODE=1
+              fi
+              if ! grep -q "<html" "$file"; then
+                echo "  Missing html element in $file"
+                EXIT_CODE=1
+              fi
+              if ! grep -q "<title>" "$file"; then
+                echo "  Missing title element in $file"
+                EXIT_CODE=1
+              fi
+              echo "  Passed: $file"
+            fi
+          done
+          exit $EXIT_CODE
+
+      - name: Check no hardcoded production API URLs
+        run: |
+          if grep -rn "amazonaws.com" frontend/*.html frontend/css/ 2>/dev/null; then
+            echo "Hardcoded AWS URL found in frontend files. Use the VITE_API_URL secret instead."
+            exit 1
+          fi
+          echo "No hardcoded production URLs found — OK"
+
+      - name: Security scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "frontend/"
+          ignore-unfixed: true
+          format: "sarif"
+          output: "trivy-frontend.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload security scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif

@@ -1,0 +1,96 @@
+services:
+  # ── Data tier ─────────────────────────────────────────────────────────────
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: hexagon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app_admin
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: app_db
+    ports:
+      - "5433:5432"
+    networks:
+      - hexagon_network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_admin -d app_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Application tier ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hexagon_api
+    restart: unless-stopped
+    environment:
+      DB_HOST: hexagon_db
+      DB_PORT: 5432
+      DB_USER: app_admin
+      DB_PASSWORD: local_dev_password
+      DB_NAME: app_db
+      DATABASE_URL: postgresql://app_admin:local_dev_password@hexagon_db:5432/app_db
+      SECRET_KEY: local-dev-secret-not-for-production
+      ALLOWED_ORIGIN: "http://localhost:80"
+      ENV_MODE: development
+    ports:
+      - "5000:5000"
+    networks:
+      - hexagon_network
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  # ── Presentation tier ──────────────────────────────────────────────────────
+  # LOCAL DEVELOPMENT ONLY.
+  # Production: the frontend static files are synced to S3 via the
+  # frontend-deploy.yml GitHub Actions workflow; this nginx container
+  # exists only to give full local parity without needing AWS.
+  webapp:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hexagon_webapp
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - hexagon_network
+    depends_on:
+      api:
+        condition: service_started
+
+  # ── Developer tooling ──────────────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hexagon_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    networks:
+      - hexagon_network
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+networks:
+  hexagon_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
