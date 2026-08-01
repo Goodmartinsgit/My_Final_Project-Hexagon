@@ -73,17 +73,14 @@ resource "aws_launch_template" "web" {
 
   user_data = base64encode(<<-EOF
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 yum update -y
 yum install -y docker
 systemctl enable docker
 systemctl start docker
-# Log ECR pull activity for debugging
-exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-aws ecr get-login-password --region ${data.aws_region.current.name} | \
-  docker login --username AWS --password-stdin ${var.web_ecr_repo_url}
-docker pull ${var.web_ecr_repo_url}:${var.web_image_tag}
-# Create nginx proxy config so /api/ is forwarded to the internal ALB
+
+# Write the Nginx proxy config
 cat > /tmp/default.conf <<'NGINX'
 server {
     listen 80;
@@ -97,12 +94,27 @@ server {
         proxy_set_header Host $$host;
         proxy_set_header X-Real-IP $$remote_addr;
     }
+    location /health {
+        default_type application/json;
+        return 200 '{"status":"ok","tier":"web"}';
+    }
 }
 NGINX
+
+# Pull the app image from ECR; fall back to plain nginx so the instance
+# stays healthy and the ASG does not replace it before the image is pushed.
+if aws ecr get-login-password --region ${data.aws_region.current.name} | \
+     docker login --username AWS --password-stdin ${var.web_ecr_repo_url} && \
+   docker pull ${var.web_ecr_repo_url}:${var.web_image_tag}; then
+  IMAGE=${var.web_ecr_repo_url}:${var.web_image_tag}
+else
+  IMAGE=nginx:alpine
+fi
+
 docker run -d --restart unless-stopped -p 80:80 \
   -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
   --name ${var.project_name}-web \
-  ${var.web_ecr_repo_url}:${var.web_image_tag}
+  "$IMAGE"
 EOF
   )
 
@@ -134,20 +146,24 @@ resource "aws_launch_template" "app" {
 
   user_data = base64encode(<<-EOF
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 yum update -y
 yum install -y docker
 systemctl enable docker
 systemctl start docker
-exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-aws ecr get-login-password --region ${data.aws_region.current.name} | \
-  docker login --username AWS --password-stdin ${var.app_ecr_repo_url}
-docker pull ${var.app_ecr_repo_url}:${var.app_image_tag}
-docker run -d --restart unless-stopped -p 5000:5000 \
-  -e SERVICE_NAME=${var.project_name}-app \
-  -e ALLOWED_ORIGIN=http://${aws_lb.external.dns_name} \
-  --name ${var.project_name}-app \
-  ${var.app_ecr_repo_url}:${var.app_image_tag}
+
+if aws ecr get-login-password --region ${data.aws_region.current.name} | \
+     docker login --username AWS --password-stdin ${var.app_ecr_repo_url} && \
+   docker pull ${var.app_ecr_repo_url}:${var.app_image_tag}; then
+  docker run -d --restart unless-stopped -p 5000:5000 \
+    -e SERVICE_NAME=${var.project_name}-app \
+    -e ALLOWED_ORIGIN=http://${aws_lb.external.dns_name} \
+    --name ${var.project_name}-app \
+    ${var.app_ecr_repo_url}:${var.app_image_tag}
+else
+  echo "ECR pull failed — no app container started. Push the image and trigger an ASG refresh."
+fi
 EOF
   )
 
