@@ -71,15 +71,15 @@ resource "aws_security_group" "webserver" {
 # ── App tier ──────────────────────────────────────────────────────────────────
 resource "aws_security_group" "appserver" {
   name        = "${var.project_name}-appserver-sg"
-  description = "App tier - reachable from web tier only, no direct internet inbound"
+  description = "App tier - reachable from web tier and internal ALB"
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "App traffic from web tier"
+    description     = "App traffic from web tier and internal ALB"
     from_port       = 5000
     to_port         = 5000
     protocol        = "tcp"
-    security_groups = [aws_security_group.webserver.id]
+    security_groups = [aws_security_group.webserver.id, aws_security_group.appserver.id]
   }
 
   ingress {
@@ -91,10 +91,10 @@ resource "aws_security_group" "appserver" {
   }
 
   egress {
-    description = "HTTPS out - package and image pulls via NAT"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
+    description = "All outbound allowed for package and container pulls"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
