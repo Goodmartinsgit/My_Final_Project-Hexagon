@@ -13,6 +13,10 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
+# ── SSH / TLS private keys — NEVER commit these ───────────────────────────────
+*.pem
+*.key
+
 # terraform.tfvars contains real credentials — NEVER commit this file.
 # Use terraform.tfvars.example as the committed template.
 terraform.tfvars

@@ -9,18 +9,10 @@ terraform {
   }
 
   backend "s3" {
-    # Fill in after running bootstrap.sh (or terraform/bootstrap/):
-    #   bucket         = "<output of bootstrap: state_bucket_name>"
-    #   key            = "hexagon-final-project/terraform.tfstate"
-    #   region         = "eu-west-1"
-    #   dynamodb_table = "<project_name>-tf-locks"
-    #   encrypt        = true
-    #
-    # Then run: terraform init -reconfigure
-    bucket         = "hexagon-final-project-tfstate-CHANGEME"
+    bucket         = "hexagon-final-project-tfstate-790139457082"
     key            = "hexagon-final-project/terraform.tfstate"
     region         = "eu-west-1"
-    dynamodb_table = "hexagon-final-project-tf-locks"
+    use_lockfile = true
     encrypt        = true
   }
 }
@@ -88,6 +80,11 @@ module "compute" {
   web_ecr_repo_url    = module.ecr.web_repo_url
   app_image_tag       = var.app_image_tag
   web_image_tag       = var.web_image_tag
+  asg_min_size         = var.asg_min_size
+  asg_desired_capacity = var.asg_desired_capacity
+  asg_max_size         = var.asg_max_size
+  internal_alb_dns     = var.internal_alb_dns
+  create_bastion       = var.create_bastion
 }
 
 # ── RDS — managed PostgreSQL ──────────────────────────────────────────────────

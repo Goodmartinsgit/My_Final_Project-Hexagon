@@ -30,9 +30,10 @@ resource "aws_db_instance" "postgres" {
   publicly_accessible    = false
 
   multi_az                = var.multi_az
-  backup_retention_period = 7
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "mon:04:00-mon:05:00"
+  backup_retention_period = 0
+  # Note: backup_retention_period = 0 disables automated backups.
+  # Free Tier accounts cannot set this above 0 without upgrading.
+  # For production, upgrade your account and set this to 7 or higher.
 
   # skip_final_snapshot = true is acceptable for dev environments that are
   # torn down regularly. Set to false and provide final_snapshot_identifier

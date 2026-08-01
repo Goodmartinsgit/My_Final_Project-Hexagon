@@ -9,8 +9,8 @@ output "internal_alb_dns" {
 }
 
 output "bastion_public_ip" {
-  description = "Public IP of the bastion host."
-  value       = aws_instance.bastion.public_ip
+  description = "Public IP of the bastion host (empty string when create_bastion = false)."
+  value       = var.create_bastion ? aws_instance.bastion[0].public_ip : ""
 }
 
 output "web_asg_name" {

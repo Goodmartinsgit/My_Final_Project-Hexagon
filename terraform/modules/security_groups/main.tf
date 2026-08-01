@@ -1,7 +1,7 @@
 # ── Bastion ───────────────────────────────────────────────────────────────────
 resource "aws_security_group" "bastion" {
   name        = "${var.project_name}-bastion-sg"
-  description = "Bastion host — SSH from your IP only"
+  description = "Bastion host - SSH from your IP only"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -28,7 +28,7 @@ resource "aws_security_group" "bastion" {
 # ── Web tier ──────────────────────────────────────────────────────────────────
 resource "aws_security_group" "webserver" {
   name        = "${var.project_name}-webserver-sg"
-  description = "Web tier — HTTP/HTTPS public, SSH from bastion only"
+  description = "Web tier - HTTP/HTTPS public, SSH from bastion only"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -71,7 +71,7 @@ resource "aws_security_group" "webserver" {
 # ── App tier ──────────────────────────────────────────────────────────────────
 resource "aws_security_group" "appserver" {
   name        = "${var.project_name}-appserver-sg"
-  description = "App tier — reachable from web tier only, no direct internet inbound"
+  description = "App tier - reachable from web tier only, no direct internet inbound"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -91,7 +91,7 @@ resource "aws_security_group" "appserver" {
   }
 
   egress {
-    description = "HTTPS out — package and image pulls via NAT"
+    description = "HTTPS out - package and image pulls via NAT"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -117,7 +117,7 @@ resource "aws_security_group_rule" "appserver_to_db" {
 # ── Database tier ─────────────────────────────────────────────────────────────
 resource "aws_security_group" "database" {
   name        = "${var.project_name}-database-sg"
-  description = "DB tier — PostgreSQL from app tier only"
+  description = "DB tier - PostgreSQL from app tier only"
   vpc_id      = var.vpc_id
 
   ingress {

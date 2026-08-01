@@ -23,6 +23,12 @@ variable "app_subnet_ids" {
   type        = list(string)
 }
 
+variable "create_bastion" {
+  description = "Set to false on Free Tier to avoid vCPU limit errors."
+  type        = bool
+  default     = false
+}
+
 variable "key_pair_name" {
   description = "EC2 key pair name for SSH access to bastion and ASG instances."
   type        = string
@@ -71,4 +77,28 @@ variable "app_image_tag" {
 variable "web_image_tag" {
   description = "Docker image tag to pull for the web-tier container."
   type        = string
+}
+
+variable "internal_alb_dns" {
+  description = "DNS name of the internal ALB — used by the web-tier Nginx to proxy /api/ requests to the app tier."
+  type        = string
+  default     = ""
+}
+
+variable "asg_min_size" {
+  description = "Minimum number of instances in each Auto Scaling Group."
+  type        = number
+  default     = 1
+}
+
+variable "asg_desired_capacity" {
+  description = "Desired number of instances in each Auto Scaling Group."
+  type        = number
+  default     = 1
+}
+
+variable "asg_max_size" {
+  description = "Maximum number of instances each Auto Scaling Group can scale to."
+  type        = number
+  default     = 4
 }

@@ -79,13 +79,43 @@ variable "my_ip_cidr" {
 variable "web_instance_type" {
   description = "EC2 instance type for the web-tier Auto Scaling Group."
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 variable "app_instance_type" {
   description = "EC2 instance type for the app-tier Auto Scaling Group."
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
+}
+
+variable "asg_min_size" {
+  description = "Minimum instances per ASG. Set to 1 on Free Tier (8 vCPU limit)."
+  type        = number
+  default     = 1
+}
+
+variable "asg_desired_capacity" {
+  description = "Desired instances per ASG. Increase after requesting a vCPU limit increase."
+  type        = number
+  default     = 1
+}
+
+variable "asg_max_size" {
+  description = "Maximum instances per ASG."
+  type        = number
+  default     = 4
+}
+
+variable "create_bastion" {
+  description = "Set to true to create the bastion host. Disable on Free Tier to stay within the 8 vCPU limit while ASGs are running."
+  type        = bool
+  default     = false
+}
+
+variable "internal_alb_dns" {
+  description = "DNS of the internal ALB — used by Nginx on web instances to proxy /api/ to the app tier. Set after first apply via: terraform output internal_alb_dns."
+  type        = string
+  default     = ""
 }
 
 # ── RDS ───────────────────────────────────────────────────────────────────────

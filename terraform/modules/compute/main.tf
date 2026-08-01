@@ -12,8 +12,9 @@ data "aws_region" "current" {}
 
 # ── Bastion host ──────────────────────────────────────────────────────────────
 resource "aws_instance" "bastion" {
+  count                       = var.create_bastion ? 1 : 0
   ami                         = data.aws_ami.al2023.id
-  instance_type               = "t2.micro"
+  instance_type               = var.web_instance_type
   subnet_id                   = var.public_subnet_ids[0]
   key_name                    = var.key_pair_name
   vpc_security_group_ids      = [var.bastion_sg_id]
@@ -71,19 +72,38 @@ resource "aws_launch_template" "web" {
   }
 
   user_data = base64encode(<<-EOF
-    #!/bin/bash
-    set -euo pipefail
-    yum update -y
-    yum install -y docker
-    systemctl enable docker
-    systemctl start docker
-    aws ecr get-login-password --region ${data.aws_region.current.name} | \
-      docker login --username AWS --password-stdin ${var.web_ecr_repo_url}
-    docker pull ${var.web_ecr_repo_url}:${var.web_image_tag}
-    docker run -d --restart unless-stopped -p 80:80 \
-      --name ${var.project_name}-web \
-      ${var.web_ecr_repo_url}:${var.web_image_tag}
-  EOF
+#!/bin/bash
+set -euo pipefail
+yum update -y
+yum install -y docker
+systemctl enable docker
+systemctl start docker
+# Log ECR pull activity for debugging
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+aws ecr get-login-password --region ${data.aws_region.current.name} | \
+  docker login --username AWS --password-stdin ${var.web_ecr_repo_url}
+docker pull ${var.web_ecr_repo_url}:${var.web_image_tag}
+# Create nginx proxy config so /api/ is forwarded to the internal ALB
+cat > /tmp/default.conf <<'NGINX'
+server {
+    listen 80;
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        try_files $$uri $$uri/ /index.html;
+    }
+    location /api/ {
+        proxy_pass http://${var.internal_alb_dns}:5000/api/;
+        proxy_set_header Host $$host;
+        proxy_set_header X-Real-IP $$remote_addr;
+    }
+}
+NGINX
+docker run -d --restart unless-stopped -p 80:80 \
+  -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
+  --name ${var.project_name}-web \
+  ${var.web_ecr_repo_url}:${var.web_image_tag}
+EOF
   )
 
   tag_specifications {
@@ -113,19 +133,22 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(<<-EOF
-    #!/bin/bash
-    set -euo pipefail
-    yum update -y
-    yum install -y docker
-    systemctl enable docker
-    systemctl start docker
-    aws ecr get-login-password --region ${data.aws_region.current.name} | \
-      docker login --username AWS --password-stdin ${var.app_ecr_repo_url}
-    docker pull ${var.app_ecr_repo_url}:${var.app_image_tag}
-    docker run -d --restart unless-stopped -p 5000:5000 \
-      --name ${var.project_name}-app \
-      ${var.app_ecr_repo_url}:${var.app_image_tag}
-  EOF
+#!/bin/bash
+set -euo pipefail
+yum update -y
+yum install -y docker
+systemctl enable docker
+systemctl start docker
+exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+aws ecr get-login-password --region ${data.aws_region.current.name} | \
+  docker login --username AWS --password-stdin ${var.app_ecr_repo_url}
+docker pull ${var.app_ecr_repo_url}:${var.app_image_tag}
+docker run -d --restart unless-stopped -p 5000:5000 \
+  -e SERVICE_NAME=${var.project_name}-app \
+  -e ALLOWED_ORIGIN=http://${aws_lb.external.dns_name} \
+  --name ${var.project_name}-app \
+  ${var.app_ecr_repo_url}:${var.app_image_tag}
+EOF
   )
 
   tag_specifications {
@@ -167,7 +190,7 @@ resource "aws_lb_target_group" "app" {
   vpc_id   = var.vpc_id
 
   health_check {
-    path                = "/api/health"
+    path                = "/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
@@ -180,14 +203,14 @@ resource "aws_lb_target_group" "app" {
 
 # ── Application Load Balancers ────────────────────────────────────────────────
 resource "aws_lb" "external" {
-  name               = "${var.project_name}-external-alb"
+  name               = "${var.project_name}-ext-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [var.webserver_sg_id]
   subnets            = var.public_subnet_ids
 
   tags = {
-    Name = "${var.project_name}-external-alb"
+    Name = "${var.project_name}-ext-alb"
   }
 }
 
@@ -203,14 +226,14 @@ resource "aws_lb_listener" "external_http" {
 }
 
 resource "aws_lb" "internal" {
-  name               = "${var.project_name}-internal-alb"
+  name               = "${var.project_name}-int-alb"
   internal           = true
   load_balancer_type = "application"
   security_groups    = [var.appserver_sg_id]
   subnets            = var.app_subnet_ids
 
   tags = {
-    Name = "${var.project_name}-internal-alb"
+    Name = "${var.project_name}-int-alb"
   }
 }
 
@@ -229,9 +252,9 @@ resource "aws_lb_listener" "internal_http" {
 resource "aws_autoscaling_group" "web" {
   name                = "${var.project_name}-web-asg"
   vpc_zone_identifier = var.public_subnet_ids
-  desired_capacity    = 2
-  min_size            = 2
-  max_size            = 4
+  desired_capacity    = var.asg_desired_capacity
+  min_size            = var.asg_min_size
+  max_size            = var.asg_max_size
   target_group_arns   = [aws_lb_target_group.web.arn]
   health_check_type   = "ELB"
 
@@ -258,9 +281,9 @@ resource "aws_autoscaling_group" "web" {
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project_name}-app-asg"
   vpc_zone_identifier = var.app_subnet_ids
-  desired_capacity    = 2
-  min_size            = 2
-  max_size            = 4
+  desired_capacity    = var.asg_desired_capacity
+  min_size            = var.asg_min_size
+  max_size            = var.asg_max_size
   target_group_arns   = [aws_lb_target_group.app.arn]
   health_check_type   = "ELB"
 

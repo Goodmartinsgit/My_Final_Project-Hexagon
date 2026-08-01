@@ -168,10 +168,9 @@
 
 
 <script>
-    // API_BASE is set by the frontend-deploy.yml workflow using sed before
-    // the files are uploaded to S3. The value below is used for local
-    // development via docker-compose. Do not hardcode a production URL here.
-const API_BASE = "http://localhost:5000/api";
+    // Relative path — works both locally (docker-compose Nginx proxies /api/)
+    // and in production (web-tier Nginx proxies /api/ to the internal ALB).
+const API_BASE = "/api";
  
  
 document.getElementById("demoForm").addEventListener("submit", async function (e) {
