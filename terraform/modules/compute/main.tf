@@ -90,7 +90,7 @@ server {
         try_files $$uri $$uri/ /index.html;
     }
     location /api/ {
-        proxy_pass http://${var.internal_alb_dns}:5000/api/;
+        proxy_pass http://${aws_lb.internal.dns_name}:5000/api/;
         proxy_set_header Host $$host;
         proxy_set_header X-Real-IP $$remote_addr;
     }
@@ -206,7 +206,7 @@ resource "aws_lb_target_group" "app" {
   vpc_id   = var.vpc_id
 
   health_check {
-    path                = "/health"
+    path                = "/api/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
