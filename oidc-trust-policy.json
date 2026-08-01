@@ -6,10 +6,16 @@
       "Principal": {
         "Federated": "arn:aws:iam::790139457082:oidc-provider/token.actions.githubusercontent.com"
       },
-      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Action": [
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:TagSession"
+      ],
       "Condition": {
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:Goodmartinsgit/My_Final_Project-Hexagon:*"
+          "token.actions.githubusercontent.com:sub": [
+            "repo:Goodmartinsgit/My_Final_Project-Hexagon:*",
+            "repo:goodmartinsgit/My_Final_Project-Hexagon:*"
+          ]
         },
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
