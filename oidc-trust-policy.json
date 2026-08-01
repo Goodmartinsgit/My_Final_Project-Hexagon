@@ -13,10 +13,9 @@
       "Condition": {
         "StringLike": {
           "token.actions.githubusercontent.com:sub": [
-            "repo:Goodmartinsgit/My_Final_Project_Hexagon:*",
-            "repo:goodmartinsgit/My_Final_Project_Hexagon:*",
-            "repo:Goodmartinsgit/My_Final_Project-Hexagon:*",
-            "repo:goodmartinsgit/My_Final_Project-Hexagon:*"
+            "repo:Goodmartinsgit@50078909/My_Final_Project-Hexagon@1308360082:*",
+            "repo:Goodmartinsgit*/My_Final_Project*:*",
+            "repo:Goodmartinsgit/My_Final_Project-Hexagon:*"
           ]
         },
         "StringEquals": {
