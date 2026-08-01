@@ -12,7 +12,7 @@ terraform {
     bucket         = "hexagon-final-project-tfstate-790139457082"
     key            = "hexagon-final-project/terraform.tfstate"
     region         = "eu-west-1"
-    use_lockfile = true
+    dynamodb_table = "hexagon-final-project-tf-locks"
     encrypt        = true
   }
 }
