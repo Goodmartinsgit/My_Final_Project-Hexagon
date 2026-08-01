@@ -117,6 +117,7 @@ else
   IMAGE=nginx:alpine
 fi
 
+docker rm -f ${var.project_name}-web 2>/dev/null || true
 docker run -d --restart unless-stopped -p 80:80 \
   -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
   --name ${var.project_name}-web \
