@@ -71,7 +71,7 @@ resource "aws_security_group" "webserver" {
 # ── App tier ──────────────────────────────────────────────────────────────────
 resource "aws_security_group" "appserver" {
   name        = "${var.project_name}-appserver-sg"
-  description = "App tier - reachable from web tier and internal ALB"
+  description = "App tier - reachable from web tier only, no direct internet inbound"
   vpc_id      = var.vpc_id
 
   ingress {
