@@ -75,11 +75,19 @@ resource "aws_security_group" "appserver" {
   vpc_id      = var.vpc_id
 
   ingress {
-    description     = "App traffic from web tier and internal ALB"
+    description     = "App traffic from web tier"
     from_port       = 5000
     to_port         = 5000
     protocol        = "tcp"
-    security_groups = [aws_security_group.webserver.id, aws_security_group.appserver.id]
+    security_groups = [aws_security_group.webserver.id]
+  }
+
+  ingress {
+    description = "App traffic from internal ALB (self)"
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    self        = true
   }
 
   ingress {
