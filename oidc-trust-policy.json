@@ -13,6 +13,8 @@
       "Condition": {
         "StringLike": {
           "token.actions.githubusercontent.com:sub": [
+            "repo:Goodmartinsgit/My_Final_Project_Hexagon:*",
+            "repo:goodmartinsgit/My_Final_Project_Hexagon:*",
             "repo:Goodmartinsgit/My_Final_Project-Hexagon:*",
             "repo:goodmartinsgit/My_Final_Project-Hexagon:*"
           ]
