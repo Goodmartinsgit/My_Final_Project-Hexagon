@@ -84,16 +84,22 @@ systemctl start docker
 cat > /tmp/default.conf <<'NGINX'
 server {
     listen 80;
+    server_name _;
+
     location / {
         root /usr/share/nginx/html;
         index index.html;
         try_files $$uri $$uri/ /index.html;
     }
+
     location /api/ {
-        proxy_pass http://${aws_lb.internal.dns_name}:5000/api/;
+        resolver 10.0.0.2 valid=30s ipv6=off;
+        set $$backend "http://${aws_lb.internal.dns_name}:5000/api/";
+        proxy_pass $$backend;
         proxy_set_header Host $$host;
         proxy_set_header X-Real-IP $$remote_addr;
     }
+
     location /health {
         default_type application/json;
         return 200 '{"status":"ok","tier":"web"}';
