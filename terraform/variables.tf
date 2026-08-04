@@ -112,11 +112,6 @@ variable "create_bastion" {
   default     = false
 }
 
-variable "internal_alb_dns" {
-  description = "DNS of the internal ALB — used by Nginx on web instances to proxy /api/ to the app tier. Set after first apply via: terraform output internal_alb_dns."
-  type        = string
-  default     = ""
-}
 
 # ── RDS ───────────────────────────────────────────────────────────────────────
 

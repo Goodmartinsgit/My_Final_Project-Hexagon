@@ -9,11 +9,11 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "hexagon-final-project-tfstate-790139457082"
-    key            = "hexagon-final-project/terraform.tfstate"
-    region         = "eu-west-1"
-    dynamodb_table = "hexagon-final-project-tf-locks"
-    encrypt        = true
+    bucket       = "hexagon-final-project-tfstate-790139457082"
+    key          = "hexagon-final-project/terraform.tfstate"
+    region       = "eu-west-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 
@@ -61,33 +61,9 @@ module "ecr" {
   environment  = var.environment
 }
 
-# ── Compute — bastion, ALBs, launch templates, ASGs ──────────────────────────
-module "compute" {
-  source = "./modules/compute"
-
-  project_name    = var.project_name
-  environment     = var.environment
-  vpc_id          = module.vpc.vpc_id
-  public_subnet_ids   = module.vpc.public_subnet_ids
-  app_subnet_ids      = module.vpc.private_app_subnet_ids
-  key_pair_name       = var.key_pair_name
-  bastion_sg_id       = module.security_groups.bastion_sg_id
-  webserver_sg_id     = module.security_groups.webserver_sg_id
-  appserver_sg_id     = module.security_groups.appserver_sg_id
-  web_instance_type   = var.web_instance_type
-  app_instance_type   = var.app_instance_type
-  app_ecr_repo_url    = module.ecr.app_repo_url
-  web_ecr_repo_url    = module.ecr.web_repo_url
-  app_image_tag       = var.app_image_tag
-  web_image_tag       = var.web_image_tag
-  asg_min_size         = var.asg_min_size
-  asg_desired_capacity = var.asg_desired_capacity
-  asg_max_size         = var.asg_max_size
-  internal_alb_dns     = var.internal_alb_dns
-  create_bastion       = var.create_bastion
-}
-
 # ── RDS — managed PostgreSQL ──────────────────────────────────────────────────
+# RDS is declared before compute so its outputs (db_address) are available
+# to wire into the app-tier launch template.
 module "rds" {
   source = "./modules/rds"
 
@@ -101,4 +77,37 @@ module "rds" {
   db_password        = var.db_password
   db_allocated_storage = var.db_allocated_storage
   multi_az           = var.db_multi_az
+}
+
+# ── Compute — bastion, ALBs, launch templates, ASGs ──────────────────────────
+module "compute" {
+  source = "./modules/compute"
+
+  project_name    = var.project_name
+  environment     = var.environment
+  vpc_id          = module.vpc.vpc_id
+  public_subnet_ids    = module.vpc.public_subnet_ids
+  app_subnet_ids       = module.vpc.private_app_subnet_ids
+  key_pair_name        = var.key_pair_name
+  bastion_sg_id        = module.security_groups.bastion_sg_id
+  external_alb_sg_id   = module.security_groups.external_alb_sg_id
+  webserver_sg_id      = module.security_groups.webserver_sg_id
+  internal_alb_sg_id   = module.security_groups.internal_alb_sg_id
+  appserver_sg_id      = module.security_groups.appserver_sg_id
+  web_instance_type    = var.web_instance_type
+  app_instance_type    = var.app_instance_type
+  app_ecr_repo_url     = module.ecr.app_repo_url
+  web_ecr_repo_url     = module.ecr.web_repo_url
+  app_image_tag        = var.app_image_tag
+  web_image_tag        = var.web_image_tag
+  asg_min_size         = var.asg_min_size
+  asg_desired_capacity = var.asg_desired_capacity
+  asg_max_size         = var.asg_max_size
+  create_bastion       = var.create_bastion
+
+  # DB connection — injected into app-tier container at runtime
+  db_address   = module.rds.db_address
+  db_name      = var.db_name
+  db_username  = var.db_username
+  db_password  = var.db_password
 }

@@ -21,10 +21,7 @@ def create_app():
 
     # Create tables if they don't exist yet
     with app.app_context():
-        try:
-            db.create_all()
-        except Exception as e:
-            app.logger.warning(f"Database table creation deferred: {e}")
+        db.create_all()
 
     return app
 

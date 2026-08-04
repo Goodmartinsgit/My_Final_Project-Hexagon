@@ -10,6 +10,16 @@ SERVICE_NAME = os.environ.get("SERVICE_NAME", "app-tier")
 
 @app.route("/health")
 def health():
+    """Health check at bare /health path."""
+    return jsonify({"status": "ok", "tier": "app"})
+
+
+# The real backend registers this via the /api blueprint prefix.
+# This stub exposes it directly so the internal ALB target group health check
+# (configured as /api/health) succeeds even when using this placeholder image.
+@app.route("/api/health")
+def api_health():
+    """Health check at /api/health — matches the internal ALB target group probe."""
     return jsonify({"status": "ok", "tier": "app"})
 
 

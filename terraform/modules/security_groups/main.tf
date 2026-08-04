@@ -25,10 +25,12 @@ resource "aws_security_group" "bastion" {
   }
 }
 
-# ── Web tier ──────────────────────────────────────────────────────────────────
-resource "aws_security_group" "webserver" {
-  name        = "${var.project_name}-webserver-sg"
-  description = "Web tier - HTTP/HTTPS public, SSH from bastion only"
+# ── External ALB ──────────────────────────────────────────────────────────────
+# Dedicated SG for the public-facing ALB. Only this SG is allowed to reach
+# the web-tier instances on port 80, so no direct EC2 traffic bypasses the ALB.
+resource "aws_security_group" "external_alb" {
+  name        = "${var.project_name}-external-alb-sg"
+  description = "External ALB - HTTP/HTTPS from the internet"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -45,6 +47,34 @@ resource "aws_security_group" "webserver" {
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Forward to web tier"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-external-alb-sg"
+  }
+}
+
+# ── Web tier ──────────────────────────────────────────────────────────────────
+# Accepts port 80 ONLY from the external ALB (not directly from the internet).
+resource "aws_security_group" "webserver" {
+  name        = "${var.project_name}-webserver-sg"
+  description = "Web tier - HTTP from external ALB only, SSH from bastion"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description     = "HTTP from external ALB only"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.external_alb.id]
   }
 
   ingress {
@@ -68,10 +98,12 @@ resource "aws_security_group" "webserver" {
   }
 }
 
-# ── App tier ──────────────────────────────────────────────────────────────────
-resource "aws_security_group" "appserver" {
-  name        = "${var.project_name}-appserver-sg"
-  description = "App tier - reachable from web tier only, no direct internet inbound"
+# ── Internal ALB ──────────────────────────────────────────────────────────────
+# Dedicated SG for the private ALB. Only the web-tier instances can send
+# traffic here on port 5000. This breaks the old circular self-reference.
+resource "aws_security_group" "internal_alb" {
+  name        = "${var.project_name}-internal-alb-sg"
+  description = "Internal ALB - accepts /api/ traffic from web tier only"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -82,12 +114,32 @@ resource "aws_security_group" "appserver" {
     security_groups = [aws_security_group.webserver.id]
   }
 
+  egress {
+    description = "Forward to app tier"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-internal-alb-sg"
+  }
+}
+
+# ── App tier ──────────────────────────────────────────────────────────────────
+# Accepts port 5000 ONLY from the internal ALB (not directly from web instances).
+resource "aws_security_group" "appserver" {
+  name        = "${var.project_name}-appserver-sg"
+  description = "App tier - reachable from internal ALB only, no direct internet inbound"
+  vpc_id      = var.vpc_id
+
   ingress {
-    description = "App traffic from internal ALB (self)"
-    from_port   = 5000
-    to_port     = 5000
-    protocol    = "tcp"
-    self        = true
+    description     = "App traffic from internal ALB only"
+    from_port       = 5000
+    to_port         = 5000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.internal_alb.id]
   }
 
   ingress {

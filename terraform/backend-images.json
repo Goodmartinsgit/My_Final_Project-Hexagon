@@ -1,0 +1,23 @@
+[
+    {
+        "imageDigest": "sha256:62681fc6407c6ccd66f004d78cfa8631559a8f53cb7d497f2e989c404726ab09"
+    },
+    {
+        "imageDigest": "sha256:ebd2ad943d68b509bab3bf40096095808b5f3978204a260b4c60090eab624be1"
+    },
+    {
+        "imageDigest": "sha256:d2f9faa5aac89bb5318a14366822833fb367bd85beb3aa764d7fe8ca2831fe91"
+    },
+    {
+        "imageDigest": "sha256:56a54ac41d2ba50960a0d3450b5edf28519b701889f3bed8af217400a3069604",
+        "imageTag": "63bd416"
+    },
+    {
+        "imageDigest": "sha256:7b522345ff78780a4d86014a5d5127aba8e4fef20d034763aa9a1b73c19d615d",
+        "imageTag": "de300e7"
+    },
+    {
+        "imageDigest": "sha256:7b522345ff78780a4d86014a5d5127aba8e4fef20d034763aa9a1b73c19d615d",
+        "imageTag": "latest"
+    }
+]

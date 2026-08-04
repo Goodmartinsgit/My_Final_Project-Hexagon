@@ -19,7 +19,7 @@ variable "public_subnet_ids" {
 }
 
 variable "app_subnet_ids" {
-  description = "IDs of the private app subnets (web + app ASGs)."
+  description = "IDs of the private app subnets (web + app ASGs and internal ALB)."
   type        = list(string)
 }
 
@@ -39,13 +39,23 @@ variable "bastion_sg_id" {
   type        = string
 }
 
+variable "external_alb_sg_id" {
+  description = "Security group ID for the external (public) ALB."
+  type        = string
+}
+
 variable "webserver_sg_id" {
-  description = "Security group ID for the web-tier instances and external ALB."
+  description = "Security group ID for the web-tier EC2 instances."
+  type        = string
+}
+
+variable "internal_alb_sg_id" {
+  description = "Security group ID for the internal ALB."
   type        = string
 }
 
 variable "appserver_sg_id" {
-  description = "Security group ID for the app-tier instances and internal ALB."
+  description = "Security group ID for the app-tier EC2 instances."
   type        = string
 }
 
@@ -79,12 +89,6 @@ variable "web_image_tag" {
   type        = string
 }
 
-variable "internal_alb_dns" {
-  description = "DNS name of the internal ALB — used by the web-tier Nginx to proxy /api/ requests to the app tier."
-  type        = string
-  default     = ""
-}
-
 variable "asg_min_size" {
   description = "Minimum number of instances in each Auto Scaling Group."
   type        = number
@@ -101,4 +105,28 @@ variable "asg_max_size" {
   description = "Maximum number of instances each Auto Scaling Group can scale to."
   type        = number
   default     = 4
+}
+
+# ── Database connection — injected into the app-tier container at runtime ──────
+variable "db_address" {
+  description = "RDS hostname (address only, no port). Injected as part of DATABASE_URL into the app container."
+  type        = string
+  sensitive   = true
+}
+
+variable "db_name" {
+  description = "PostgreSQL database name."
+  type        = string
+}
+
+variable "db_username" {
+  description = "PostgreSQL master username."
+  type        = string
+  sensitive   = true
+}
+
+variable "db_password" {
+  description = "PostgreSQL master password. Always supply via TF_VAR env var — never hardcode."
+  type        = string
+  sensitive   = true
 }

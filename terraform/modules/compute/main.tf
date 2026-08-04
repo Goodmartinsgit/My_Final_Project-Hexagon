@@ -59,6 +59,10 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
 }
 
 # ── Web-tier launch template ──────────────────────────────────────────────────
+# Nginx acts as a reverse proxy:
+#   /       → serves the static frontend from the ECR image
+#   /api/   → proxies to the internal ALB (app tier) on port 5000
+#   /health → local health stub for the external ALB health check
 resource "aws_launch_template" "web" {
   name_prefix   = "${var.project_name}-web-lt-"
   image_id      = data.aws_ami.al2023.id
@@ -73,33 +77,39 @@ resource "aws_launch_template" "web" {
 
   user_data = base64encode(<<-EOF
 #!/bin/bash
-set -uo pipefail
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 yum update -y
 yum install -y docker
 systemctl enable docker
 systemctl start docker
 
-# Write the Nginx proxy config
+# Write the Nginx config with the real internal ALB DNS baked in at apply time.
+# This config is volume-mounted over the image's default, so it always wins
+# regardless of which image tag is pulled from ECR.
 cat > /tmp/default.conf <<'NGINX'
 server {
     listen 80;
     server_name _;
 
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Serve static frontend files
     location / {
-        root /usr/share/nginx/html;
-        index index.html;
         try_files $$uri $$uri/ /index.html;
     }
 
+    # Proxy /api/ requests to the internal ALB → app tier
     location /api/ {
-        resolver 10.0.0.2 valid=30s ipv6=off;
-        set $$backend "http://${aws_lb.internal.dns_name}:5000/api/";
-        proxy_pass $$backend;
+        proxy_pass http://${aws_lb.internal.dns_name}:5000/api/;
         proxy_set_header Host $$host;
         proxy_set_header X-Real-IP $$remote_addr;
+        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 60s;
     }
 
+    # Health endpoint for the external ALB health check
     location /health {
         default_type application/json;
         return 200 '{"status":"ok","tier":"web"}';
@@ -107,17 +117,15 @@ server {
 }
 NGINX
 
-# Pull the app image from ECR; fall back to plain nginx so the instance
-# stays healthy and the ASG does not replace it before the image is pushed.
+# Authenticate against ECR and pull the web image.
+# Falls back to plain nginx:alpine if the pull fails (e.g. image not yet pushed).
+IMAGE=nginx:alpine
 if aws ecr get-login-password --region ${data.aws_region.current.name} | \
-     docker login --username AWS --password-stdin ${var.web_ecr_repo_url} && \
-   docker pull ${var.web_ecr_repo_url}:${var.web_image_tag}; then
-  IMAGE=${var.web_ecr_repo_url}:${var.web_image_tag}
-else
-  IMAGE=nginx:alpine
+     docker login --username AWS --password-stdin ${var.web_ecr_repo_url} 2>/dev/null; then
+  docker pull ${var.web_ecr_repo_url}:${var.web_image_tag} 2>/dev/null && \
+    IMAGE=${var.web_ecr_repo_url}:${var.web_image_tag}
 fi
 
-docker rm -f ${var.project_name}-web 2>/dev/null || true
 docker run -d --restart unless-stopped -p 80:80 \
   -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
   --name ${var.project_name}-web \
@@ -139,6 +147,8 @@ EOF
 }
 
 # ── App-tier launch template ──────────────────────────────────────────────────
+# Flask backend container. DB connection details are injected at runtime so
+# no credentials are stored in the image or in source control.
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-app-lt-"
   image_id      = data.aws_ami.al2023.id
@@ -153,7 +163,6 @@ resource "aws_launch_template" "app" {
 
   user_data = base64encode(<<-EOF
 #!/bin/bash
-set -uo pipefail
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 yum update -y
 yum install -y docker
@@ -161,11 +170,15 @@ systemctl enable docker
 systemctl start docker
 
 if aws ecr get-login-password --region ${data.aws_region.current.name} | \
-     docker login --username AWS --password-stdin ${var.app_ecr_repo_url} && \
-   docker pull ${var.app_ecr_repo_url}:${var.app_image_tag}; then
+     docker login --username AWS --password-stdin ${var.app_ecr_repo_url} 2>/dev/null && \
+   docker pull ${var.app_ecr_repo_url}:${var.app_image_tag} 2>/dev/null; then
   docker run -d --restart unless-stopped -p 5000:5000 \
     -e SERVICE_NAME=${var.project_name}-app \
-    -e ALLOWED_ORIGIN=http://${aws_lb.external.dns_name} \
+    -e ENV_MODE=production \
+    -e DATABASE_URL="postgresql://${var.db_username}:${var.db_password}@${var.db_address}:5432/${var.db_name}" \
+    -e DB_HOST="${var.db_address}" \
+    -e SECRET_KEY="$(openssl rand -hex 32)" \
+    -e ALLOWED_ORIGIN="http://${aws_lb.external.dns_name}" \
     --name ${var.project_name}-app \
     ${var.app_ecr_repo_url}:${var.app_image_tag}
 else
@@ -195,7 +208,7 @@ resource "aws_lb_target_group" "web" {
   vpc_id   = var.vpc_id
 
   health_check {
-    path                = "/"
+    path                = "/health"
     healthy_threshold   = 2
     unhealthy_threshold = 3
     interval            = 30
@@ -225,11 +238,13 @@ resource "aws_lb_target_group" "app" {
 }
 
 # ── Application Load Balancers ────────────────────────────────────────────────
+# External ALB — internet-facing, serves the web tier.
+# Uses its own dedicated security group (not shared with EC2 instances).
 resource "aws_lb" "external" {
   name               = "${var.project_name}-ext-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [var.webserver_sg_id]
+  security_groups    = [var.external_alb_sg_id]
   subnets            = var.public_subnet_ids
 
   tags = {
@@ -248,11 +263,13 @@ resource "aws_lb_listener" "external_http" {
   }
 }
 
+# Internal ALB — private, only reachable from web-tier Nginx.
+# Uses its own dedicated security group (not shared with app EC2 instances).
 resource "aws_lb" "internal" {
   name               = "${var.project_name}-int-alb"
   internal           = true
   load_balancer_type = "application"
-  security_groups    = [var.appserver_sg_id]
+  security_groups    = [var.internal_alb_sg_id]
   subnets            = var.app_subnet_ids
 
   tags = {
