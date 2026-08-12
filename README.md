@@ -12,7 +12,7 @@ Application Tier   — Flask REST API container on App ASG behind Internal ALB
 Data Tier          — PostgreSQL Database on RDS in Private DB Subnets
 ```
 
-For full architecture diagrams, security group rules, and subnet layouts, see [docs/architecture.md](docs/architecture.md).
+For full architecture diagrams, security group rules, and subnet layouts, see [docs/architecture_report.md](docs/architecture_report.md).
 
 ---
 
