@@ -1,207 +1,264 @@
-# Hexagon Final Project — Three-Tier Web Application on AWS
+# Hexagon Final Project — Three-Tier Web Architecture on AWS
 
-A production-grade three-tier web architecture provisioned as code and deployed
-through CI/CD — no manual clicking in the console. Read this top-to-bottom before
-running anything; the order matters.
+A production-grade, highly available three-tier web application provisioned using **Terraform (IaC)**, containerized with **Docker**, and deployed across AWS infrastructure (VPC, ALBs, EC2 Auto Scaling Groups, ECR, and RDS PostgreSQL).
 
-**Key principle:** Every AWS resource name is prefixed with `var.project_name`.
-No string is hardcoded in any Terraform file. Renaming the project means
-changing one variable.
+---
 
 ## Architecture Overview
 
 ```
-Presentation tier  — Nginx container (ECR) on web-tier ASG behind a public ALB
-Application tier   — Flask REST API container (ECR) on app-tier ASG behind an internal ALB
-Data tier          — PostgreSQL on RDS in private subnets
+Presentation Tier  — Nginx web server container on Web ASG behind External ALB
+Application Tier   — Flask REST API container on App ASG behind Internal ALB
+Data Tier          — PostgreSQL Database on RDS in Private DB Subnets
 ```
 
-Full architecture diagram, VPC layout, and security group rules: [docs/architecture.md](docs/architecture.md)
+For full architecture diagrams, security group rules, and subnet layouts, see [docs/architecture.md](docs/architecture.md).
+
+---
 
 ## Repository Layout
 
 ```
 .
-├── backend/                   Flask API (Python)
-│   ├── app.py                 Application factory
-│   ├── config.py              Environment-based configuration
-│   ├── models.py              SQLAlchemy models
-│   ├── routes.py              API route handlers
-│   ├── requirements.txt       Production dependencies (includes Gunicorn)
-│   ├── requirements-dev.txt   Development / test dependencies
-│   ├── .env.example           Required environment variables (no real values)
-│   ├── tests/                 Pytest test suite
-│   └── Dockerfile             Production image (Gunicorn + Flask, non-root user)
+├── backend/                   Flask REST API (Python 3.11 + Gunicorn)
+│   ├── app.py                 Application factory & entrypoint
+│   ├── config.py              Database & environment configuration
+│   ├── models.py              SQLAlchemy models (DemoRequest schema)
+│   ├── routes.py              API route handlers (/health, /api/demo)
+│   ├── requirements.txt       Production dependencies
+│   ├── tests/                 Pytest suite
+│   └── Dockerfile             Production Gunicorn container image
 │
-├── frontend/                  Static HTML/CSS site
-│   ├── index.html
-│   ├── features.html
-│   ├── docs.html
-│   ├── css/
-│   ├── images/
-│   └── Dockerfile             Nginx image for local dev and web-tier ECR
+├── frontend/                  Loruki Static HTML/CSS Web Application
+│   ├── index.html             Home page with "Request a Demo" form
+│   ├── features.html          Platform features overview
+│   ├── docs.html              Technical documentation page
+│   ├── submissions.html       Submissions dashboard (Card / Table views & live search)
+│   ├── css/                   Stylesheets (style.css, utilities.css)
+│   ├── nginx.conf             Nginx reverse proxy configuration & cache-control headers
+│   └── Dockerfile             Nginx production image
 │
-├── terraform/                 Terraform — provisions all AWS infrastructure
-│   ├── main.tf                Backend config, provider, and all module wiring
-│   ├── variables.tf           All variables — project_name is the naming prefix
-│   ├── outputs.tf             Key values output after apply
-│   ├── terraform.tfvars.example  Copy to terraform.tfvars and fill in real values
-│   └── modules/
-│       ├── vpc/               VPC, subnets (public/private-app/private-db), IGW, NAT, route tables
-│       ├── security_groups/   Bastion, web, app, and database security groups
-│       ├── ecr/               ECR repos: {project_name}/backend and {project_name}/frontend
-│       ├── compute/           Bastion, IAM, launch templates, ALBs, target groups, ASGs
-│       └── rds/               RDS PostgreSQL instance and subnet group
+├── terraform/                 Terraform Infrastructure Code
+│   ├── main.tf                Backend provider & module wiring
+│   ├── variables.tf           Input variables (project_name prefix)
+│   ├── outputs.tf             ALB DNS, ECR URLs, and ASG names
+│   ├── terraform.tfvars.example  Configuration template
+│   └── modules/               VPC, Security Groups, ECR, Compute, RDS
 │
 ├── .github/workflows/         GitHub Actions CI/CD pipelines
-│   ├── backend-ci.yml         Lint, test, and security-scan on pull request
-│   ├── backend-deploy.yml     Build backend/ image, push to ECR, trigger app ASG refresh
-│   ├── frontend-ci.yml        Validate frontend on pull request
-│   ├── frontend-deploy.yml    Build frontend/ image, push to ECR, trigger web ASG refresh
-│   └── terraform.yml          Plan on PR (comments output), apply/destroy via workflow_dispatch
+│   ├── backend-deploy.yml     Build & push backend container to ECR
+│   └── frontend-deploy.yml    Build & push frontend container to ECR
 │
 ├── docs/
-│   └── architecture.md        Full architecture diagram and design decisions
+│   ├── architecture.md        Detailed network layout & design decisions
+│   ├── architecture_report.md Full Capstone Architecture Report & Reflection Answers (Tasks 1-6)
+│   └── demo_guide.md          10-Minute Live Demo Presentation Guide & Script
 │
-├── docker-compose.yml          Local development — spins up db, api, webapp, and pgadmin
-├── bootstrap.sh                One-time setup: creates S3 state bucket + DynamoDB lock table
-└── README.md
+├── docker-compose.yml          Local development environment
+├── bootstrap.sh                One-time S3 state bucket & DynamoDB lock setup script
+└── README.md                   Project lifecycle & operation guide
 ```
 
-## Local Development
+---
 
-### Prerequisites
+## Complete Application Lifecycle
 
-- Docker and Docker Compose
-- Python 3.11 or later (for running tests outside containers)
+Follow these steps in order to **Initialize**, **Deploy**, **Start**, and **Teardown** the infrastructure.
 
-### Start all services
+---
+
+### Step 0: Prerequisites & Tool Setup
+
+Ensure the following tools are installed on your machine:
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (configured with credentials: `aws configure`)
+- [Terraform v1.7+](https://developer.hashicorp.com/terraform/downloads)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running)
+- Git / Bash environment
+
+---
+
+### Step 1: Initialize Infrastructure & Remote State Backend
+
+1. **Bootstrap S3 Remote State Bucket and DynamoDB Lock Table**:
+   Run the setup script from the project root:
+   ```bash
+   bash bootstrap.sh
+   ```
+   *Note the created S3 bucket name printed in the script output.*
+
+2. **Configure Remote State in Terraform**:
+   Open `terraform/main.tf` and ensure the `backend "s3"` block contains your bucket name and region:
+   ```hcl
+   terraform {
+     backend "s3" {
+       bucket         = "hexagon-final-project-tf-state-xxxx"
+       key            = "hexagon/terraform.tfstate"
+       region         = "eu-west-1"
+       dynamodb_table = "hexagon-final-project-tf-locks"
+       encrypt        = true
+     }
+   }
+   ```
+
+3. **Initialize Terraform Workspace**:
+   ```bash
+   cd terraform
+   terraform init
+   ```
+
+---
+
+### Step 2: Configure & Provision AWS Infrastructure (Deploy)
+
+1. **Create Variable File**:
+   Copy the template and specify your deployment parameters:
+   ```bash
+   cp terraform.tfvars.example terraform.tfvars
+   ```
+
+2. **Edit `terraform.tfvars`**:
+   ```hcl
+   project_name = "hexagon-final-project"
+   aws_region   = "eu-west-1"
+   my_ip_cidr   = "YOUR_PUBLIC_IP/32"  # e.g., 203.0.113.25/32
+   db_password  = "YOUR_SECURE_DB_PASSWORD"
+   github_org   = "your-github-username"
+   github_repo  = "your-repo-name"
+   ```
+
+3. **Review & Apply Terraform Configuration**:
+   ```bash
+   terraform plan
+   terraform apply -auto-approve
+   ```
+
+4. **Capture Infrastructure Outputs**:
+   After `terraform apply` finishes successfully, display the outputs:
+   ```bash
+   terraform output
+   ```
+   Take note of:
+   - `external_alb_dns`: Public ALB domain name
+   - `ecr_web_repo_url`: ECR repository URL for Frontend
+   - `ecr_app_repo_url`: ECR repository URL for Backend
+   - `web_asg_name`: Web Auto Scaling Group name
+   - `app_asg_name`: App Auto Scaling Group name
+
+---
+
+### Step 3: Build, Push Container Images & Start Application Services
+
+1. **Log into AWS ECR**:
+   Get your AWS Account ID and authenticate Docker against ECR:
+   ```bash
+   AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   AWS_REGION="eu-west-1"
+
+   aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+   ```
+
+2. **Build and Push Backend Image**:
+   ```bash
+   cd ../backend
+   docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hexagon-final-project/backend:latest .
+   docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hexagon-final-project/backend:latest
+   ```
+
+3. **Build and Push Frontend Image**:
+   ```bash
+   cd ../frontend
+   docker build -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hexagon-final-project/frontend:latest .
+   docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/hexagon-final-project/frontend:latest
+   ```
+
+4. **Trigger Auto Scaling Instance Refreshes (Start Services)**:
+   Trigger rolling instance refreshes so EC2 instances pull and run the latest Docker containers:
+   ```bash
+   aws autoscaling start-instance-refresh --auto-scaling-group-name hexagon-final-project-app-asg --region eu-west-1
+   aws autoscaling start-instance-refresh --auto-scaling-group-name hexagon-final-project-web-asg --region eu-west-1
+   ```
+
+---
+
+### Step 4: Access & Verify Live Application
+
+1. **Web Tier Health Check**:
+   ```bash
+   curl -i http://<EXTERNAL_ALB_DNS>/health
+   # Response: HTTP 200 OK {"status":"ok","tier":"web"}
+   ```
+
+2. **App Tier & End-to-End Routing Check**:
+   ```bash
+   curl -i http://<EXTERNAL_ALB_DNS>/api/health
+   # Response: HTTP 200 OK {"status":"ok"}
+   ```
+
+3. **Open Web Pages in Browser**:
+   - **Home Page**: `http://<EXTERNAL_ALB_DNS>/index.html`
+   - **Submissions Page**: `http://<EXTERNAL_ALB_DNS>/submissions.html`
+
+4. **Test Data Flow (Frontend → Backend → RDS PostgreSQL)**:
+   Submit a test request via curl or using the web form:
+   ```bash
+   curl -i -X POST http://<EXTERNAL_ALB_DNS>/api/demo \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Hexagon User","company":"Hexagon Global","email":"user@hexagon.com"}'
+   ```
+   Then view the saved record on the Submissions dashboard (`http://<EXTERNAL_ALB_DNS>/submissions.html`).
+
+---
+
+### Step 5: Teardown & Clean Up Infrastructure
+
+To completely destroy all created resources and stop incurring charges:
+
+1. **Delete Images from ECR Repositories**:
+   ECR repositories cannot be destroyed by Terraform if they contain images. Clear them using AWS CLI:
+   ```bash
+   aws ecr batch-delete-image --repository-name hexagon-final-project/backend --image-ids imageTag=latest --region eu-west-1
+   aws ecr batch-delete-image --repository-name hexagon-final-project/frontend --image-ids imageTag=latest --region eu-west-1
+   ```
+
+2. **Run Terraform Destroy**:
+   ```bash
+   cd terraform
+   terraform destroy -auto-approve
+   ```
+
+3. **Delete Remote State S3 Bucket and DynamoDB Lock Table (Optional Final Cleanup)**:
+   ```bash
+   S3_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, 'hexagon-final-project-tf-state')].Name" --output text)
+   aws s3 rb s3://$S3_BUCKET --force
+   aws dynamodb delete-table --table-name hexagon-final-project-tf-locks --region eu-west-1
+   ```
+
+---
+
+## Local Development (Docker Compose)
+
+To run the entire 4-container stack locally without deploying to AWS:
 
 ```bash
 docker compose up --build
 ```
 
-This starts four containers:
+Services started:
+- `hexagon_db`: PostgreSQL on port `5433`
+- `hexagon_api`: Flask API on port `5000`
+- `hexagon_webapp`: Nginx Frontend on port `80`
+- `hexagon_pgadmin`: DB administration UI on port `5050`
 
-```
-hexagon_db       PostgreSQL 16 on port 5433
-hexagon_api      Flask API on port 5000
-hexagon_webapp   Nginx serving the static frontend on port 80
-hexagon_pgadmin  pgAdmin on port 5050 (optional, for DB inspection)
-```
+---
 
-Open http://localhost in your browser.
-The demo form submits to http://localhost:5000/api/demo.
+## Capstone Architecture Report & Technical Documentation
 
-### Run backend tests
+For a comprehensive, production-grade architectural analysis and reflection documentation, refer to the full [AWS Cloud Engineering Capstone Architecture Report](docs/architecture_report.md).
 
-```bash
-cd backend
-pip install -r requirements.txt -r requirements-dev.txt
-pytest tests/ -v --cov=. --cov-report=term-missing
-```
+### Key Report Highlights:
+- **End-to-End Architecture & Network Topology**: Complete request routing analysis from external ingress to multi-AZ Web/App Auto Scaling Groups and private RDS PostgreSQL.
+- **VPC Subnet & Security Group Specifications**: Least-privilege firewall rules (`bastion-sg`, `webserver-sg`, `appserver-sg`, `database-sg`) and subnet IP calculations.
+- **CI/CD & Container Orchestration**: Automated GitHub Actions pipelines using AWS OIDC authentication, ECR registries, and rolling ASG instance refreshes.
+- **Capstone Reflections (Tasks 1–6)**: Detailed theoretical and operational reflection answers covering VPC design, stateful firewalls, EC2 Auto Scaling, ALBs, RDS storage, and Terraform IaC advantages.
+- **Cost Analysis & Production Hardening**: Monthly AWS expenditure breakdowns and roadmap recommendations for WAF, HTTPS/TLS termination, Multi-AZ database failover, and KMS encryption.
 
-## Infrastructure Deployment
-
-### 1. Prerequisites (local machine)
-
-```bash
-# Git Bash on Windows (or WSL / Linux / macOS)
-aws configure   # configure your IAM user credentials for the one-time bootstrap only
-```
-
-Ensure `terraform` v1.7+ is in your PATH.
-
-### 2. Bootstrap the remote state backend (once, ever)
-
-```bash
-bash bootstrap.sh
-```
-
-This creates the S3 bucket and DynamoDB table used to store Terraform state.
-Copy the bucket name printed at the end into `terraform/main.tf`'s `backend "s3"` block, then:
-
-```bash
-cd terraform && terraform init
-```
-
-### 3. Set up GitHub OIDC (once, manual step)
-
-GitHub Actions authenticates to AWS via OIDC — no static access keys stored.
-
-In the AWS Console:
-
-1. **IAM → Identity providers → Add provider → OpenID Connect**
-   - Provider URL: `https://token.actions.githubusercontent.com`
-   - Audience: `sts.amazonaws.com`
-2. **IAM → Roles → Create role → Web identity**
-   - Select the OIDC provider above
-   - Condition: `token.actions.githubusercontent.com:sub` = `repo:<org>/<repo>:ref:refs/heads/main`
-3. Attach a policy granting EC2, VPC, ELB, RDS, ECR, IAM, S3, and DynamoDB permissions
-4. Copy the role ARN → **GitHub Repo → Settings → Secrets → `AWS_DEPLOY_ROLE_ARN`**
-
-### 4. Configure GitHub Secrets
-
-| Secret                    | Where to get the value                                  |
-|---------------------------|---------------------------------------------------------|
-| `AWS_REGION`              | Your target region (e.g. `eu-west-1`)                  |
-| `AWS_DEPLOY_ROLE_ARN`     | IAM role ARN from step 3 above                          |
-| `ECR_REPOSITORY_BACKEND`  | `terraform output ecr_app_repo_url` (after apply)       |
-| `ECR_REPOSITORY_FRONTEND` | `terraform output ecr_web_repo_url` (after apply)       |
-| `APP_ASG_NAME`            | `terraform output app_asg_name` (after apply)           |
-| `WEB_ASG_NAME`            | `terraform output web_asg_name` (after apply)           |
-| `ADMIN_IP_CIDR`           | Your public IP in `x.x.x.x/32` form                    |
-| `TF_VAR_DB_PASSWORD`      | Strong RDS master password                              |
-
-### 5. First infrastructure deploy
-
-```bash
-# Copy the example file and fill in real values:
-cp terraform/terraform.tfvars.example terraform/terraform.tfvars
-# edit terraform/terraform.tfvars — set project_name, my_ip_cidr, db_password, github_org/repo
-
-cd terraform
-terraform plan   # review the plan
-terraform apply  # provision VPC, security groups, ECR, compute, RDS
-```
-
-Or open a pull request — `terraform.yml` runs automatically and comments the plan on the PR.
-Merging to `main` and triggering `workflow_dispatch → apply` provisions real infrastructure.
-
-### 6. Push the first images
-
-After `terraform apply` creates the ECR repos (instances will be unhealthy until images exist):
-
-```bash
-# Push to main — backend-deploy.yml and frontend-deploy.yml run automatically.
-# Or trigger workflow_dispatch manually in the GitHub Actions tab.
-```
-
-### 7. Refresh the ASGs
-
-The GitHub Actions deploy workflows trigger a rolling instance refresh automatically.
-You can also do it manually:
-
-```bash
-aws autoscaling start-instance-refresh --auto-scaling-group-name <app_asg_name>
-aws autoscaling start-instance-refresh --auto-scaling-group-name <web_asg_name>
-```
-
-## Naming Convention
-
-All AWS resource names are prefixed with `var.project_name` (default: `hexagon-final-project`).
-To rename the entire stack, change `project_name` in `terraform/terraform.tfvars` and run `terraform apply`.
-
-## Teardown
-
-```bash
-cd terraform
-terraform destroy \
-  -var="github_org=<your-org>" \
-  -var="github_repo=<your-repo>" \
-  -var="my_ip_cidr=<your-ip>/32" \
-  -var="db_password=<your-password>"
-```
-
-See [docs/architecture.md](docs/architecture.md) for instructions on destroying the
-state bucket once you are completely finished.

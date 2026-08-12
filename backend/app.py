@@ -23,6 +23,10 @@ def create_app():
     with app.app_context():
         db.create_all()
 
+    @app.route("/health")
+    def root_health():
+        return {"status": "ok", "tier": "app"}, 200
+
     return app
 
 

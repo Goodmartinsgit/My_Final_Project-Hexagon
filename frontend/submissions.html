@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css" integrity="sha512-+4zCK9k+qNFUR5X+cKL9EIR+ZOhtIloNl9GIKS57V1MyNsYpYcUrUeQc9vNfzsWfV28IaLL3i96P9sdNyeRssA==" crossorigin="anonymous" />
+    <link rel="stylesheet" href="css/utilities.css">
+    <link rel="stylesheet" href="css/style.css">
+    <title>Loruki | Demo Submissions</title>
+</head>
+<body>
+    <!-- Navbar -->
+    <div class="navbar">
+        <div class="container flex">
+             <h1 class="logo"><a href="index.html">Loruki.</a></h1>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="features.html">Features</a></li>
+                    <li><a href="docs.html">Docs</a></li>
+                    <li><a href="submissions.html">Submissions</a></li>
+                </ul>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <section class="features-head bg-primary py-3">
+        <div class="container grid">
+            <div>
+                <h1 class="xl">Demo Requests</h1>
+                <p class="lead">
+                    View and manage all Name, Company Name, and Email details submitted through our platform
+                </p>
+            </div>
+            <img src="images/server.png" alt="Server Illustration">
+        </div>
+    </section>
+
+    <!-- Submissions Content -->
+    <section class="submissions-section">
+        <div class="container">
+            <!-- Toolbar -->
+            <div class="submissions-toolbar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Search by Name, Company, or Email...">
+                </div>
+
+                <div class="view-switcher">
+                    <span id="counterBadge" class="count-badge">0 Requests</span>
+                    <button id="btnCardView" class="view-btn active" title="Switch to Card View">
+                        <i class="fas fa-th-large"></i> Cards
+                    </button>
+                    <button id="btnTableView" class="view-btn" title="Switch to Table View">
+                        <i class="fas fa-list"></i> Table
+                    </button>
+                    <button id="btnRefresh" class="view-btn" title="Refresh Data">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loading / Error / Empty States -->
+            <div id="statusState" class="status-state">
+                <i class="fas fa-spinner fa-spin"></i>
+                <h3>Loading Demo Submissions...</h3>
+                <p>Fetching records from PostgreSQL database.</p>
+            </div>
+
+            <!-- Card View Container -->
+            <div id="cardView" class="submissions-grid hidden"></div>
+
+            <!-- Table View Container -->
+            <div id="tableView" class="submissions-table-container hidden">
+                <table class="submissions-table">
+                    <thead>
+                        <tr>
+                            <th># ID</th>
+                            <th><i class="fas fa-user"></i> Name</th>
+                            <th><i class="fas fa-building"></i> Company Name</th>
+                            <th><i class="fas fa-envelope"></i> Email</th>
+                            <th><i class="fas fa-clock"></i> Date & Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer bg-dark py-5">
+        <div class="container grid grid-3">
+            <div>
+                <h1>Loruki.
+                </h1>
+                <p>Copyright &copy; 2026</p>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="features.html">Features</a></li>
+                    <li><a href="docs.html">Docs</a></li>
+                    <li><a href="submissions.html">Submissions</a></li>
+                </ul>
+            </nav>
+            <div class="social">
+                <a href="#"><i class="fab fa-github fa-2x"></i></a>
+                <a href="#"><i class="fab fa-facebook fa-2x"></i></a>
+                <a href="#"><i class="fab fa-instagram fa-2x"></i></a>
+                <a href="#"><i class="fab fa-twitter fa-2x"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        const API_BASE = "/api";
+        let submissionsData = [];
+        let currentView = localStorage.getItem("preferredView") || "card";
+
+        // DOM elements
+        const cardView = document.getElementById("cardView");
+        const tableView = document.getElementById("tableView");
+        const tableBody = document.getElementById("tableBody");
+        const statusState = document.getElementById("statusState");
+        const searchInput = document.getElementById("searchInput");
+        const counterBadge = document.getElementById("counterBadge");
+        const btnCardView = document.getElementById("btnCardView");
+        const btnTableView = document.getElementById("btnTableView");
+        const btnRefresh = document.getElementById("btnRefresh");
+
+        // Format Date
+        function formatDate(dateStr) {
+            if (!dateStr) return "N/A";
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return dateStr;
+            }
+        }
+
+        // Fetch Submissions from Backend API
+        async function fetchSubmissions() {
+            statusState.classList.remove("hidden");
+            statusState.innerHTML = `
+                <i class="fas fa-spinner fa-spin"></i>
+                <h3>Loading Demo Submissions...</h3>
+                <p>Fetching records from PostgreSQL database.</p>
+            `;
+            cardView.classList.add("hidden");
+            tableView.classList.add("hidden");
+
+            try {
+                const res = await fetch(`${API_BASE}/demo`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const responseData = await res.json();
+
+                submissionsData = responseData.data || [];
+                render();
+            } catch (err) {
+                statusState.classList.remove("hidden");
+                statusState.innerHTML = `
+                    <i class="fas fa-exclamation-triangle" style="color: var(--error-color);"></i>
+                    <h3>Unable to Load Submissions</h3>
+                    <p>Error connecting to backend database. Please click Refresh to try again.</p>
+                `;
+            }
+        }
+
+        // Render Cards and Table based on search query
+        function render() {
+            const query = searchInput.value.toLowerCase().trim();
+            const filtered = submissionsData.filter(item => {
+                const name = (item.name || "").toLowerCase();
+                const company = (item.company || "").toLowerCase();
+                const email = (item.email || "").toLowerCase();
+                return name.includes(query) || company.includes(query) || email.includes(query);
+            });
+
+            counterBadge.textContent = `${filtered.length} ${filtered.length === 1 ? 'Request' : 'Requests'}`;
+
+            if (filtered.length === 0) {
+                statusState.classList.remove("hidden");
+                statusState.innerHTML = `
+                    <i class="fas fa-folder-open"></i>
+                    <h3>No Submissions Found</h3>
+                    <p>${submissionsData.length === 0 ? "No demo requests have been submitted yet." : "No records match your search criteria."}</p>
+                `;
+                cardView.classList.add("hidden");
+                tableView.classList.add("hidden");
+                return;
+            }
+
+            statusState.classList.add("hidden");
+
+            // Render Card View
+            cardView.innerHTML = filtered.map(item => `
+                <div class="submission-card">
+                    <div class="card-header-bar">
+                        <span class="card-id-tag">#${item.id}</span>
+                        <span class="card-date"><i class="far fa-clock"></i> ${formatDate(item.submitted_at)}</span>
+                    </div>
+                    <div class="card-body-item">
+                        <i class="fas fa-user"></i>
+                        <div>
+                            <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">Name</div>
+                            <strong>${escapeHtml(item.name)}</strong>
+                        </div>
+                    </div>
+                    <div class="card-body-item">
+                        <i class="fas fa-building"></i>
+                        <div>
+                            <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">Company Name</div>
+                            <strong>${escapeHtml(item.company)}</strong>
+                        </div>
+                    </div>
+                    <div class="card-body-item">
+                        <i class="fas fa-envelope"></i>
+                        <div>
+                            <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px;">Email</div>
+                            <strong style="color: var(--primary-color);">${escapeHtml(item.email)}</strong>
+                        </div>
+                    </div>
+                </div>
+            `).join("");
+
+            // Render Table View
+            tableBody.innerHTML = filtered.map(item => `
+                <tr>
+                    <td><strong>#${item.id}</strong></td>
+                    <td><strong>${escapeHtml(item.name)}</strong></td>
+                    <td>${escapeHtml(item.company)}</td>
+                    <td><a href="mailto:${escapeHtml(item.email)}" style="color: var(--primary-color);">${escapeHtml(item.email)}</a></td>
+                    <td>${formatDate(item.submitted_at)}</td>
+                </tr>
+            `).join("");
+
+            // Toggle view visibility
+            if (currentView === "card") {
+                cardView.classList.remove("hidden");
+                tableView.classList.add("hidden");
+                btnCardView.classList.add("active");
+                btnTableView.classList.remove("active");
+            } else {
+                cardView.classList.add("hidden");
+                tableView.classList.remove("hidden");
+                btnCardView.classList.remove("active");
+                btnTableView.classList.add("active");
+            }
+        }
+
+        // HTML Escape helper
+        function escapeHtml(str) {
+            if (!str) return "";
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Event Listeners
+        btnCardView.addEventListener("click", () => {
+            currentView = "card";
+            localStorage.setItem("preferredView", "card");
+            render();
+        });
+
+        btnTableView.addEventListener("click", () => {
+            currentView = "table";
+            localStorage.setItem("preferredView", "table");
+            render();
+        });
+
+        btnRefresh.addEventListener("click", () => {
+            fetchSubmissions();
+        });
+
+        searchInput.addEventListener("input", () => {
+            render();
+        });
+
+        // Initialize on load
+        fetchSubmissions();
+    </script>
+</body>
+</html>

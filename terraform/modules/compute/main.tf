@@ -59,10 +59,6 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
 }
 
 # ── Web-tier launch template ──────────────────────────────────────────────────
-# Nginx acts as a reverse proxy:
-#   /       → serves the static frontend from the ECR image
-#   /api/   → proxies to the internal ALB (app tier) on port 5000
-#   /health → local health stub for the external ALB health check
 resource "aws_launch_template" "web" {
   name_prefix   = "${var.project_name}-web-lt-"
   image_id      = data.aws_ami.al2023.id
@@ -78,58 +74,27 @@ resource "aws_launch_template" "web" {
   user_data = base64encode(<<-EOF
 #!/bin/bash
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-yum update -y
-yum install -y docker
+echo "=== Starting Web User Data Script ==="
+dnf install -y docker awscli
 systemctl enable docker
 systemctl start docker
 
-# Write the Nginx config with the real internal ALB DNS baked in at apply time.
-# This config is volume-mounted over the image's default, so it always wins
-# regardless of which image tag is pulled from ECR.
-cat > /tmp/default.conf <<'NGINX'
-server {
-    listen 80;
-    server_name _;
+REGION="${data.aws_region.current.name}"
+REPO="${var.web_ecr_repo_url}"
+TAG="${var.web_image_tag}"
 
-    root /usr/share/nginx/html;
-    index index.html;
+echo "Logging into ECR..."
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$${REPO%%/*}"
 
-    # Serve static frontend files
-    location / {
-        try_files $$uri $$uri/ /index.html;
-    }
+echo "Pulling ECR image: $REPO:$TAG"
+docker pull "$REPO:$TAG"
 
-    # Proxy /api/ requests to the internal ALB → app tier
-    location /api/ {
-        proxy_pass http://${aws_lb.internal.dns_name}:5000/api/;
-        proxy_set_header Host $$host;
-        proxy_set_header X-Real-IP $$remote_addr;
-        proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
-        proxy_connect_timeout 10s;
-        proxy_read_timeout 60s;
-    }
-
-    # Health endpoint for the external ALB health check
-    location /health {
-        default_type application/json;
-        return 200 '{"status":"ok","tier":"web"}';
-    }
-}
-NGINX
-
-# Authenticate against ECR and pull the web image.
-# Falls back to plain nginx:alpine if the pull fails (e.g. image not yet pushed).
-IMAGE=nginx:alpine
-if aws ecr get-login-password --region ${data.aws_region.current.name} | \
-     docker login --username AWS --password-stdin ${var.web_ecr_repo_url} 2>/dev/null; then
-  docker pull ${var.web_ecr_repo_url}:${var.web_image_tag} 2>/dev/null && \
-    IMAGE=${var.web_ecr_repo_url}:${var.web_image_tag}
-fi
-
+echo "Starting Web container..."
 docker run -d --restart unless-stopped -p 80:80 \
-  -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
   --name ${var.project_name}-web \
-  "$IMAGE"
+  "$REPO:$TAG"
+
+echo "=== Web User Data Script Complete ==="
 EOF
   )
 
@@ -147,8 +112,6 @@ EOF
 }
 
 # ── App-tier launch template ──────────────────────────────────────────────────
-# Flask backend container. DB connection details are injected at runtime so
-# no credentials are stored in the image or in source control.
 resource "aws_launch_template" "app" {
   name_prefix   = "${var.project_name}-app-lt-"
   image_id      = data.aws_ami.al2023.id
@@ -164,26 +127,33 @@ resource "aws_launch_template" "app" {
   user_data = base64encode(<<-EOF
 #!/bin/bash
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
-yum update -y
-yum install -y docker
+echo "=== Starting App User Data Script ==="
+dnf install -y docker awscli
 systemctl enable docker
 systemctl start docker
 
-if aws ecr get-login-password --region ${data.aws_region.current.name} | \
-     docker login --username AWS --password-stdin ${var.app_ecr_repo_url} 2>/dev/null && \
-   docker pull ${var.app_ecr_repo_url}:${var.app_image_tag} 2>/dev/null; then
-  docker run -d --restart unless-stopped -p 5000:5000 \
-    -e SERVICE_NAME=${var.project_name}-app \
-    -e ENV_MODE=production \
-    -e DATABASE_URL="postgresql://${var.db_username}:${var.db_password}@${var.db_address}:5432/${var.db_name}" \
-    -e DB_HOST="${var.db_address}" \
-    -e SECRET_KEY="$(openssl rand -hex 32)" \
-    -e ALLOWED_ORIGIN="http://${aws_lb.external.dns_name}" \
-    --name ${var.project_name}-app \
-    ${var.app_ecr_repo_url}:${var.app_image_tag}
-else
-  echo "ECR pull failed — no app container started. Push the image and trigger an ASG refresh."
-fi
+REGION="${data.aws_region.current.name}"
+REPO="${var.app_ecr_repo_url}"
+TAG="${var.app_image_tag}"
+
+echo "Logging into ECR..."
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$${REPO%%/*}"
+
+echo "Pulling ECR image: $REPO:$TAG"
+docker pull "$REPO:$TAG"
+
+echo "Starting App container..."
+docker run -d --restart unless-stopped -p 5000:5000 \
+  -e SERVICE_NAME=${var.project_name}-app \
+  -e ENV_MODE=production \
+  -e DATABASE_URL="postgresql://${var.db_username}:${var.db_password}@${var.db_address}:5432/${var.db_name}" \
+  -e DB_HOST="${var.db_address}" \
+  -e SECRET_KEY="hexag0n-secret-key-prod" \
+  -e ALLOWED_ORIGIN="http://${aws_lb.external.dns_name}" \
+  --name ${var.project_name}-app \
+  "$REPO:$TAG"
+
+echo "=== App User Data Script Complete ==="
 EOF
   )
 
@@ -210,7 +180,7 @@ resource "aws_lb_target_group" "web" {
   health_check {
     path                = "/health"
     healthy_threshold   = 2
-    unhealthy_threshold = 3
+    unhealthy_threshold = 6
     interval            = 30
   }
 
@@ -228,7 +198,7 @@ resource "aws_lb_target_group" "app" {
   health_check {
     path                = "/api/health"
     healthy_threshold   = 2
-    unhealthy_threshold = 3
+    unhealthy_threshold = 6
     interval            = 30
   }
 
@@ -238,8 +208,6 @@ resource "aws_lb_target_group" "app" {
 }
 
 # ── Application Load Balancers ────────────────────────────────────────────────
-# External ALB — internet-facing, serves the web tier.
-# Uses its own dedicated security group (not shared with EC2 instances).
 resource "aws_lb" "external" {
   name               = "${var.project_name}-ext-alb"
   internal           = false
@@ -263,8 +231,6 @@ resource "aws_lb_listener" "external_http" {
   }
 }
 
-# Internal ALB — private, only reachable from web-tier Nginx.
-# Uses its own dedicated security group (not shared with app EC2 instances).
 resource "aws_lb" "internal" {
   name               = "${var.project_name}-int-alb"
   internal           = true
@@ -290,13 +256,14 @@ resource "aws_lb_listener" "internal_http" {
 
 # ── Auto Scaling Groups ───────────────────────────────────────────────────────
 resource "aws_autoscaling_group" "web" {
-  name                = "${var.project_name}-web-asg"
-  vpc_zone_identifier = var.public_subnet_ids
-  desired_capacity    = var.asg_desired_capacity
-  min_size            = var.asg_min_size
-  max_size            = var.asg_max_size
-  target_group_arns   = [aws_lb_target_group.web.arn]
-  health_check_type   = "ELB"
+  name                      = "${var.project_name}-web-asg"
+  vpc_zone_identifier       = var.public_subnet_ids
+  desired_capacity          = var.asg_desired_capacity
+  min_size                  = var.asg_min_size
+  max_size                  = var.asg_max_size
+  target_group_arns         = [aws_lb_target_group.web.arn]
+  health_check_type         = "ELB"
+  health_check_grace_period = 300
 
   launch_template {
     id      = aws_launch_template.web.id
@@ -319,13 +286,14 @@ resource "aws_autoscaling_group" "web" {
 }
 
 resource "aws_autoscaling_group" "app" {
-  name                = "${var.project_name}-app-asg"
-  vpc_zone_identifier = var.app_subnet_ids
-  desired_capacity    = var.asg_desired_capacity
-  min_size            = var.asg_min_size
-  max_size            = var.asg_max_size
-  target_group_arns   = [aws_lb_target_group.app.arn]
-  health_check_type   = "ELB"
+  name                      = "${var.project_name}-app-asg"
+  vpc_zone_identifier       = var.app_subnet_ids
+  desired_capacity          = var.asg_desired_capacity
+  min_size                  = var.asg_min_size
+  max_size                  = var.asg_max_size
+  target_group_arns         = [aws_lb_target_group.app.arn]
+  health_check_type         = "ELB"
+  health_check_grace_period = 300
 
   launch_template {
     id      = aws_launch_template.app.id
@@ -342,7 +310,7 @@ resource "aws_autoscaling_group" "app" {
 
   tag {
     key                 = "Name"
-    value               = "${var.project_name}-app-asg-instance"
+    value               = "${var.project_name}-app-instance"
     propagate_at_launch = true
   }
 }
